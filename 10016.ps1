@@ -107,13 +107,14 @@ function fixnew([string]$clsid, [string]$appid, [string]$user, [string]$user_alt
     if ($user -ne 'S-1-5-18' -and $user_alt -ne 'S-1-5-18') {
         $users.Add('S-1-5-18') | Out-Null
     }
-    #Add Local Administators group
-    #    if ($user -ne 'S-1-5-32-544' -and $user_alt -ne 'S-1-5-32-544') {
-    #        $users.Add('S-1-5-32-544') | Out-Null
-    #    }
-
-    # Add Domain/Local Administrators group
-    $users.add($administrators.Translate('System.Security.Principal.SecurityIdentifier').Value) | Out-Null
+    #Add Domain Administrators or Builtin\Administrators as appropriate
+    try {
+        $users.add($administrators.Translate('System.Security.Principal.SecurityIdentifier').Value) | Out-Null
+    } catch {
+        if ($user -ne 'S-1-5-32-544' -and $user_alt -ne 'S-1-5-32-544') {
+            $users.Add('S-1-5-32-544') | Out-Null
+        }
+    }
 
     #Generate array of keys
     $keys = [System.Collections.ArrayList]@()
@@ -229,7 +230,7 @@ $script:readOnly = New-Object System.Security.AccessControl.RegistryAccessRule $
 
 #Process events
 write-host 'Getting events...'
-$events = Get-WinEvent -FilterHashTable @{ LogName = 'System'; Level = 2; Id = 10016 }
+$events = Get-WinEvent -FilterHashTable @{ LogName = 'System'; Id = 10016 }
 foreach ($e in $events) {
     $clsid = $e.Properties[3].Value
     $appid = $e.Properties[4].Value
