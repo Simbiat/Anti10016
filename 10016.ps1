@@ -1,10 +1,13 @@
 # ================================================================
+# From
+# https://github.com/Simbiat/Anti10016/blob/main/10016.ps1
 # Based on
 # https://gist.github.com/kitmenke/3213d58ffd60ae9873ca466f143945f4
 # and
 # https://gist.github.com/Parahexen/c8a2e8d553eb3ac5d15d0a2e0687f05e
 # with some optimisation and replacement of CLASSES_ROOT due to
 # https://stackoverflow.com/questions/53984433/hkey-local-machine-software-classes-vs-hkey-classes-root
+# Refinement to work on domain controllers by Sean Gallagher and Matthew Prentice
 # ================================================================
 
 
@@ -104,9 +107,13 @@ function fixnew([string]$clsid, [string]$appid, [string]$user, [string]$user_alt
     if ($user -ne 'S-1-5-18' -and $user_alt -ne 'S-1-5-18') {
         $users.Add('S-1-5-18') | Out-Null
     }
-    #Add Administators group
-    if ($user -ne 'S-1-5-32-544' -and $user_alt -ne 'S-1-5-32-544') {
-        $users.Add('S-1-5-32-544') | Out-Null
+    #Add Domain Administrators or Builtin\Administrators as appropriate
+    try {
+        $users.add($administrators.Translate('System.Security.Principal.SecurityIdentifier').Value) | Out-Null
+    } catch {
+        if ($user -ne 'S-1-5-32-544' -and $user_alt -ne 'S-1-5-32-544') {
+            $users.Add('S-1-5-32-544') | Out-Null
+        }
     }
 
     #Generate array of keys
@@ -205,17 +212,25 @@ function fixnew([string]$clsid, [string]$appid, [string]$user, [string]$user_alt
 
 # fix all 10016 events
 cls
+
 #Array to avoid reprocessing of same entries
 $processed = [System.Collections.ArrayList]@()
+
 #Set entities
 $script:trustedInstaller = [Security.Principal.NTAccount]'NT SERVICE\TrustedInstaller'
-$script:administrators = New-Object System.Security.Principal.NTAccount(Get-LocalGroup -SID S-1-5-32-544)
+try {
+    $Script:administrators = New-Object System.Security.Principal.NTAccount $("$($ENV:USERDOMAIN)\Domain Admins").trim() -ErrorAction Stop
+} catch {
+    $script:administrators = New-Object System.Security.Principal.NTAccount (Get-LocalGroup -SID S-1-5-32-544)
+}
+
 #Rules for administrators' group
 $script:fullAccess = New-Object System.Security.AccessControl.RegistryAccessRule $administrators.Value,'FullControl','ContainerInherit','None','Allow'
 $script:readOnly = New-Object System.Security.AccessControl.RegistryAccessRule $administrators.Value,'ReadKey','ContainerInherit','None','Allow'
+
 #Process events
 write-host 'Getting events...'
-$events = Get-WinEvent -FilterHashTable @{ LogName = 'System'; Level = 3; Id = 10016 }
+$events = Get-WinEvent -FilterHashTable @{ LogName = 'System'; Id = 10016 }
 foreach ($e in $events) {
     $clsid = $e.Properties[3].Value
     $appid = $e.Properties[4].Value
